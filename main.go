@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"text/tabwriter"
@@ -47,7 +48,8 @@ func RunFeatureTests(t *testing.T, stepIsolater interface{}) {
 				log.Fatalf("could not read feature file: %v", err)
 			} else {
 				if r, err := handleFeature(bufio.NewReader(strings.NewReader(string(feat)))); err != nil {
-					log.Fatalf("%v", err)
+					t.Errorf("\n\n%v", err)
+					return
 				} else if err := run(r, t, stepType); err != nil {
 					log.Fatalf("%v", err)
 				}
@@ -90,6 +92,9 @@ func handleFeature(fReader *bufio.Reader) (runners []*runnerAndArgs, err error) 
 			return andSpecified && lastMode == mode
 		}
 
+		var runner *runnerAndArgs
+		var lineComment string
+
 		switch {
 		default:
 			return nil, fmt.Errorf("Unknown line type: %s", strings.Split(line, " ")[0])
@@ -106,23 +111,26 @@ func handleFeature(fReader *bufio.Reader) (runners []*runnerAndArgs, err error) 
 			err = fmt.Errorf("Not implemented.")
 		case strings.HasPrefix(line, "Given") || andModeFor(GivenMode):
 			lastMode = GivenMode
-			if runner, err := ParseGiven(line, fReader); err != nil {
+			if runner, err = ParseGiven(line, fReader); err != nil {
 				atLeastOneMissingRunner = true
 			} else {
+				lineComment = runner.StepInfo()
 				runners = append(runners, runner)
 			}
 		case strings.HasPrefix(line, "When") || andModeFor(WhenMode):
 			lastMode = WhenMode
-			if runner, err := ParseWhen(line, fReader); err != nil {
+			if runner, err = ParseWhen(line, fReader); err != nil {
 				atLeastOneMissingRunner = true
 			} else {
+				lineComment = runner.StepInfo()
 				runners = append(runners, runner)
 			}
 		case strings.HasPrefix(line, "Then") || andModeFor(ThenMode):
 			lastMode = ThenMode
-			if runner, err := ParseThen(line, fReader); err != nil {
+			if runner, err = ParseThen(line, fReader); err != nil {
 				atLeastOneMissingRunner = true
 			} else {
+				lineComment = runner.StepInfo()
 				runners = append(runners, runner)
 			}
 		case andSpecified:
@@ -132,9 +140,10 @@ func handleFeature(fReader *bufio.Reader) (runners []*runnerAndArgs, err error) 
 		// Let user know status of line
 		fmt.Fprintf(w, line)
 		if err != nil {
-			fmt.Fprintf(w, "\t// %s", err)
+			fmt.Fprintf(w, "\t✗ %s\n", err)
+		} else {
+			fmt.Fprintf(w, "\t✓ %s\n", lineComment)
 		}
-		fmt.Fprintln(w)
 	}
 
 	w.Flush()
@@ -150,6 +159,19 @@ type runnerAndArgs struct {
 	Runner runner
 	Args   []string
 	Step   string
+}
+
+func (r *runnerAndArgs) StepInfo() string {
+	fp := reflect.ValueOf(r.Runner).Pointer()
+	f, l := runtime.FuncForPC(fp).FileLine(fp)
+
+	if wd, err := os.Getwd(); err != nil {
+		panic(err)
+	} else if relPath, err := filepath.Rel(wd, f); err != nil {
+		panic(err)
+	} else {
+		return fmt.Sprintf("%s:%d", relPath, l)
+	}
 }
 
 func run(runners []*runnerAndArgs, t *testing.T, stepType reflect.Type) error {
@@ -208,8 +230,6 @@ func run(runners []*runnerAndArgs, t *testing.T, stepType reflect.Type) error {
 				return fmt.Errorf(`Cannot handle steps which accept arguments of type "%v" at this time.`, rt.In(pn))
 			case stepType:
 				args = append(args, stepVal)
-			case tType:
-				args = append(args, reflect.ValueOf(t))
 			case reflect.TypeOf(true):
 				b := false
 				if r.Args[an] != "" {
