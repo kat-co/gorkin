@@ -30,9 +30,9 @@ func TestFeatures(t *testing.T) {
 		fmt.Println("created a feature file")
 	})
 
-	When(`the user runs gorkin`, func(f *I) {
+	When(`a user runs gorkin`, func(f *I) {
 		if f.dir != "features" {
-			f.gorkResult = "error"
+			f.gorkResult = "Could not find a features directory."
 		} else {
 			f.gorkResult = "ran"
 		}
@@ -54,9 +54,10 @@ func TestFeatures(t *testing.T) {
 		}
 	})
 
-	Then(`they should receive an error`, func(f *I) {
+	Then(`they should receive this error`, func(f *I, errMsg string) {
 		fmt.Println("checking to make sure there is an error.")
-		if f.gorkResult != "error" {
+		if f.gorkResult != errMsg {
+			t.Errorf("%v != %v", f.gorkResult, errMsg)
 			t.Fatalf("Expected to receive an error: %v", f.gorkResult)
 		}
 	})

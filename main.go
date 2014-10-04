@@ -35,25 +35,28 @@ func main() {
 
 func RunFeatureTests(t *testing.T, stepIsolater interface{}) {
 	stepType := reflect.PtrTo(reflect.TypeOf(stepIsolater)).Elem()
-	if files, err := ioutil.ReadDir("features"); err != nil {
+	files, err := ioutil.ReadDir("features")
+	if err != nil {
 		log.Fatalf("could not read features directory: %v", err)
-	} else {
+	}
 
-		for _, f := range files {
+	for _, f := range files {
 
-			fmt.Printf("Processing: \"%s\"\n\n", f.Name())
-			if filepath.Ext(f.Name()) != ".feature" {
-				continue
-			} else if feat, err := ioutil.ReadFile(filepath.Join("features", f.Name())); err != nil {
-				log.Fatalf("could not read feature file: %v", err)
-			} else {
-				if r, err := handleFeature(bufio.NewReader(strings.NewReader(string(feat)))); err != nil {
-					t.Errorf("\n\n%v", err)
-					return
-				} else if err := run(r, t, stepType); err != nil {
-					log.Fatalf("%v", err)
-				}
-			}
+		fmt.Printf("Processing: \"%s\"\n\n", f.Name())
+		if filepath.Ext(f.Name()) != ".feature" {
+			continue
+		}
+
+		feat, err := ioutil.ReadFile(filepath.Join("features", f.Name()))
+		if err != nil {
+			log.Fatalf("could not read feature file: %v", err)
+		}
+
+		if r, err := handleFeature(bufio.NewReader(strings.NewReader(string(feat)))); err != nil {
+			t.Errorf("\n\n%v", err)
+			return
+		} else if err := run(r, t, stepType); err != nil {
+			log.Fatalf("%v", err)
 		}
 	}
 }
@@ -69,6 +72,8 @@ func handleFeature(fReader *bufio.Reader) (runners []*runnerAndArgs, err error) 
 		GivenMode       mode = "Given"
 		WhenMode        mode = "When"
 		ThenMode        mode = "Then"
+		PythonStrSent   mode = "PythonSent"
+		PythonString    mode = "Python"
 		DeclarationMode mode = "(declaration)"
 	)
 
@@ -133,17 +138,37 @@ func handleFeature(fReader *bufio.Reader) (runners []*runnerAndArgs, err error) 
 				lineComment = runner.StepInfo()
 				runners = append(runners, runner)
 			}
+		case strings.HasPrefix(line, `"""`) || lastMode == PythonString:
+			lastRunner := &runners[len(runners)-1]
+			args := (*lastRunner).Args
+			if strings.HasPrefix(line, `"""`) {
+				if lastMode != PythonString {
+					args = append(args, "")
+				} else {
+					lastArg := &args[len(args)-1]
+					*lastArg = (*lastArg)[:len((*lastArg))-1]
+				}
+				(*lastRunner).Args = args
+				lastMode = PythonString
+				break
+			}
+
+			lastArg := &args[len(args)-1]
+			*lastArg += line + "\n"
+			(*lastRunner).Args = args
 		case andSpecified:
 			return nil, fmt.Errorf("and clauses may only follow a Given, When, or Then clause.")
 		}
 
 		// Let user know status of line
-		fmt.Fprintf(w, line)
+		fmt.Fprintf(w, line+"\t")
 		if err != nil {
-			fmt.Fprintf(w, "\t✗ %s\n", err)
-		} else {
-			fmt.Fprintf(w, "\t✓ %s\n", lineComment)
+			fmt.Fprintf(w, "✗ %s", err)
+		} else if lineComment != "" {
+			fmt.Fprintf(w, "✓ %s", lineComment)
 		}
+
+		fmt.Fprintf(w, "\n")
 	}
 
 	w.Flush()
@@ -193,7 +218,7 @@ func run(runners []*runnerAndArgs, t *testing.T, stepType reflect.Type) error {
 			for pn := 0; pn < rt.NumIn(); pn++ {
 				switch rt.In(pn) {
 				case tType, stepType:
-					numGorkinGeneratableTypes += 1
+					numGorkinGeneratableTypes++
 					// default:
 					// 	t.Logf("Failed type: %v", rt.In(pn))
 				}
@@ -201,9 +226,9 @@ func run(runners []*runnerAndArgs, t *testing.T, stepType reflect.Type) error {
 
 			if numGorkinGeneratableTypes < numOff {
 				t.Fatalf(
-					"Regex did not provide enough groups (%d) for given step (%d):\n\t%s",
-					rt.NumIn(),
+					"Regex provided %d groups, but the step requires %d arguments:\n\t%s",
 					len(r.Args),
+					rt.NumIn(),
 					r.Step,
 				)
 				return nil
