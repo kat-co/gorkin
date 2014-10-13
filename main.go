@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"text/tabwriter"
@@ -72,8 +73,8 @@ func handleFeature(fReader *bufio.Reader) (runners []*runnerAndArgs, err error) 
 		GivenMode       mode = "Given"
 		WhenMode        mode = "When"
 		ThenMode        mode = "Then"
-		PythonStrSent   mode = "PythonSent"
 		PythonString    mode = "Python"
+		Example         mode = "Example"
 		DeclarationMode mode = "(declaration)"
 	)
 
@@ -96,6 +97,8 @@ func handleFeature(fReader *bufio.Reader) (runners []*runnerAndArgs, err error) 
 			//debug.Printf("andMode=%v, lastMode=%v, mode=%v", andSpecified, lastMode, mode)
 			return andSpecified && lastMode == mode
 		}
+
+		//debug.Printf("Processing line (mode:%s): %s\n", lastMode, line)
 
 		var runner *runnerAndArgs
 		var lineComment string
@@ -132,30 +135,43 @@ func handleFeature(fReader *bufio.Reader) (runners []*runnerAndArgs, err error) 
 			}
 		case strings.HasPrefix(line, "Then") || andModeFor(ThenMode):
 			lastMode = ThenMode
-			if runner, err = ParseThen(line, fReader); err != nil {
+			runner, err = ParseThen(line, fReader)
+			if err != nil {
 				atLeastOneMissingRunner = true
-			} else {
-				lineComment = runner.StepInfo()
-				runners = append(runners, runner)
+				break
 			}
+			lineComment = runner.StepInfo()
+			runners = append(runners, runner)
 		case strings.HasPrefix(line, `"""`) || lastMode == PythonString:
-			lastRunner := &runners[len(runners)-1]
-			args := (*lastRunner).Args
+			if len(runners) <= 0 {
+				if strings.HasPrefix(line, `"""`) && lastMode == PythonString {
+					lastMode = DeclarationMode
+					break
+				}
+				lastMode = PythonString
+				break
+			}
+			lastRunner := func() *runnerAndArgs { return runners[len(runners)-1] }
+			args := lastRunner().Args
 			if strings.HasPrefix(line, `"""`) {
 				if lastMode != PythonString {
 					args = append(args, "")
+					lastMode = PythonString
 				} else {
 					lastArg := &args[len(args)-1]
 					*lastArg = (*lastArg)[:len((*lastArg))-1]
+					lastMode = DeclarationMode
 				}
-				(*lastRunner).Args = args
-				lastMode = PythonString
+				lastRunner().Args = args
 				break
 			}
 
 			lastArg := &args[len(args)-1]
 			*lastArg += line + "\n"
-			(*lastRunner).Args = args
+			lastRunner().Args = args
+		case strings.HasPrefix(line, "Examples:") || lastMode == Example:
+			lastMode = Example
+			err = fmt.Errorf("Not yet supported")
 		case andSpecified:
 			return nil, fmt.Errorf("and clauses may only follow a Given, When, or Then clause.")
 		}
@@ -263,6 +279,12 @@ func run(runners []*runnerAndArgs, t *testing.T, stepType reflect.Type) error {
 				args = append(args, reflect.ValueOf(b))
 			case reflect.TypeOf(""):
 				args = append(args, reflect.ValueOf(r.Args[an]))
+			case reflect.TypeOf(0):
+				i, err := strconv.Atoi(r.Args[an])
+				if err != nil {
+					panic(err)
+				}
+				args = append(args, reflect.ValueOf(i))
 			}
 		}
 
