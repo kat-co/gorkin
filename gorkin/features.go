@@ -1,4 +1,4 @@
-package main
+package gorkin
 
 import (
 	"bufio"
@@ -10,11 +10,7 @@ import (
 )
 
 // Steps are global for maximum reusability.
-var (
-	givenRunners runnerMap = make(map[*regexp.Regexp]runner)
-	whenRunners            = make(map[*regexp.Regexp]runner)
-	thenRunners            = make(map[*regexp.Regexp]runner)
-)
+var steps runnerMap = make(map[*regexp.Regexp]runner)
 
 func ParseFeature(featureLine string, reader *bufio.Reader) (*Feature, error) {
 
@@ -58,50 +54,39 @@ type runner interface{}
 type runnerMap map[*regexp.Regexp]runner
 
 type Background struct {
-	givenRunners runnerMap
+	steps runnerMap
 }
 
 func ParseGiven(givenLine string, reader *bufio.Reader) (*runnerAndArgs, error) {
-	return findRunner(strings.TrimLeft(givenLine, "Given "), givenRunners, reader)
+	return findRunner(strings.TrimLeft(givenLine, "Given "), steps, reader)
 }
 
-func Given(regex string, f runner) {
-	must(runnerExists("Given", regex, givenRunners))
-	givenRunners[regexp.MustCompile(regex)] = f
+func Step(regex string, f runner) {
+	must(runnerExists(regex, steps))
+	steps[regexp.MustCompile(regex)] = f
 }
 
 func UsingScenario(description string) *Scenario {
 	return &Scenario{
 		description: description,
 		// Background:  Background{make(map[string]runner)},
-		// whenRunners: make(map[string]runner),
-		// thenRunners: make(map[string]runner),
+		// steps: make(map[string]runner),
+		// steps: make(map[string]runner),
 	}
 }
 
 type Scenario struct {
 	Background
 	description string
-	whenRunners runnerMap
-	thenRunners runnerMap
+	steps       runnerMap
 }
 
 func ParseWhen(whenLine string, reader *bufio.Reader) (*runnerAndArgs, error) {
-	return findRunner(strings.TrimLeft(whenLine, "When "), whenRunners, reader)
-}
-
-func When(regex string, f runner) {
-	must(runnerExists("When", regex, whenRunners))
-	whenRunners[regexp.MustCompile(regex)] = f
+	return findRunner(strings.TrimLeft(whenLine, "When "), steps, reader)
 }
 
 func ParseThen(thenLine string, reader *bufio.Reader) (*runnerAndArgs, error) {
-	return findRunner(strings.TrimLeft(thenLine, "Then "), thenRunners, reader)
-}
-
-func Then(regex string, f runner) {
-	must(runnerExists("Then", regex, thenRunners))
-	thenRunners[regexp.MustCompile(regex)] = f
+	return findRunner(strings.TrimLeft(thenLine, "Then "), steps, reader)
 }
 
 func must(err error) {
@@ -110,11 +95,11 @@ func must(err error) {
 	}
 }
 
-func runnerExists(rType string, regex string, runners runnerMap) error {
+func runnerExists(regex string, runners runnerMap) error {
 
 	for cRegex, _ := range runners {
 		if cRegex.String() == regex {
-			return fmt.Errorf(`A "%s" runner for "%s" already exists.`, rType, regex)
+			return fmt.Errorf(`The step for "%s" already exists.`, regex)
 		}
 	}
 	return nil
