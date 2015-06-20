@@ -52,10 +52,10 @@ func RunFeatureTests(t *testing.T, stepIsolater interface{}) {
 			log.Fatalf("could not read feature file: %v", err)
 		}
 
-		if r, err := handleFeature(bufio.NewReader(strings.NewReader(string(feat)))); err != nil {
+		if f, err := handleFeature(bufio.NewReader(strings.NewReader(string(feat)))); err != nil {
 			t.Errorf("\n\n%v", err)
 			return
-		} else if err := run(r, t, stepType); err != nil {
+		} else if _, err := run(f.Runners, t, stepType, f.Background...); err != nil {
 			log.Fatalf("%v", err)
 		}
 	}
@@ -65,7 +65,7 @@ func RunFeatureTests(t *testing.T, stepIsolater interface{}) {
 	}
 }
 
-func handleFeature(fReader *bufio.Reader) (runners []*runnerAndArgs, err error) {
+func handleFeature(fReader *bufio.Reader) (ftr *feature, err error) {
 	BeginValidation().Validate(IsNotNil(fReader, "fReader")).CheckAndPanic()
 
 	// TODO(kate): Stupid dumb parsing just to get things moving.
@@ -79,12 +79,49 @@ func handleFeature(fReader *bufio.Reader) (runners []*runnerAndArgs, err error) 
 		PythonString    mode = "Python"
 		Example         mode = "Example"
 		DeclarationMode mode = "(declaration)"
+		BackgroundMode  mode = "Background"
 	)
 
+	ftr = &feature{}
 	w := tabwriter.NewWriter(os.Stdout, 0, 1, 2, ' ', 0)
 	modeStack := []mode{DeclarationMode}
 	atLeastOneMissingRunner := false
 	scenarioIndentation := 0
+	pythonString := ""
+
+	endOfBackgroundBlock := func(stateStack []mode) ([]*runnerAndArgs, bool) {
+		backgroundRunners := make([]*runnerAndArgs, 0)
+		for posFromHead, state := range stateStack {
+			//debug.Printf("Adding: %v", (*ftr.Runners[len(ftr.Runners)-posFromHead-1]))
+			switch state {
+			case BackgroundMode:
+
+				debug.Println("== All steps: ==")
+				debugSteps(ftr.Runners...)
+				debug.Println("== / ==")
+
+				// Remove all the background runners from the normal
+				// stack.
+				pivotPoint := len(ftr.Runners) - posFromHead - 1
+				// TODO(katco): For some reason, copy is not working. Probably because the array contains pointers to structs.
+				for _, runner := range ftr.Runners[pivotPoint:] {
+					backgroundRunners = append(backgroundRunners, runner)
+				}
+				//backgroundRunners = ftr.Runners[pivotPoint:]
+				debug.Println("== backgroundRunners: ==")
+				debugSteps(backgroundRunners...)
+				debug.Println("== / ==")
+				ftr.Runners = ftr.Runners[:pivotPoint]
+				debug.Println("== All steps: ==")
+				debugSteps(ftr.Runners...)
+				debug.Println("== / ==")
+				return backgroundRunners, true
+			case DeclarationMode:
+				return nil, false
+			}
+		}
+		return nil, false
+	}
 
 	for {
 		var rawLine string
@@ -98,11 +135,11 @@ func handleFeature(fReader *bufio.Reader) (runners []*runnerAndArgs, err error) 
 		indentCount := len(rawLine) - len(line)
 		andSpecified := strings.HasPrefix(line, "And")
 		andModeFor := func(mode mode) bool {
-			//debug.Printf("andMode=%v, lastMode=%v, mode=%v", andSpecified, lastMode, mode)
 			return andSpecified && modeStack[0] == mode
 		}
 
-		//debug.Printf("Processing line (mode:%s): %s\n", modeStack[0], line)
+		// debug.Printf(`Processing line (mode:%s): "%s"\\n`, modeStack[0], line)
+		// debug.Printf(`Processing rawLine: "%s"\\n`, rawLine)
 
 		var runner *runnerAndArgs
 		var lineComment string
@@ -110,21 +147,72 @@ func handleFeature(fReader *bufio.Reader) (runners []*runnerAndArgs, err error) 
 		switch {
 		default:
 			return nil, fmt.Errorf("Unknown line type: %s", strings.Split(line, " ")[0])
+		case strings.HasPrefix(line, `"""`):
+
+			if modeStack[0] == PythonString {
+				// Pop PythonString if it has ended
+				modeStack = modeStack[1:]
+
+				if len(ftr.Runners) > 0 {
+					args := ftr.Runners[len(ftr.Runners)-1].Args
+					if len(pythonString) != 0 {
+						pythonString = pythonString[1:]
+					}
+					args = append(args, fmt.Sprintf(pythonString))
+					ftr.Runners[len(ftr.Runners)-1].Args = args
+				}
+
+				pythonString = ""
+			} else {
+				// Push PythonString
+				scenarioIndentation = indentCount
+				modeStack = append([]mode{PythonString}, modeStack...)
+			}
+		case modeStack[0] == PythonString && len(ftr.Runners) > 0:
+			// The python string we're building up is meant to be an
+			// argument in the runner which proceded it. If there
+			// aren't any runners, it's just some helpful python
+			// string, but not an argument.
+
+			pythonString += "\n"
+			if len(rawLine) > 1 {
+				pythonString += rawLine[scenarioIndentation-1 : len(rawLine)-1]
+			}
 		case line == "":
+			if len(ftr.Background) <= 0 {
+				if backgroundRunners, ok := endOfBackgroundBlock(modeStack); ok {
+					ftr.Background = backgroundRunners
+				}
+			}
 			break
 		case strings.HasPrefix(line, "Feature:"):
 			modeStack = append([]mode{DeclarationMode}, modeStack...)
 			_, err = ParseFeature(line, fReader)
-		case strings.HasPrefix(line, "Background:"), strings.HasPrefix(line, "Scenario"):
+		case strings.HasPrefix(line, "Background:"):
+
+			if ftr.Background != nil {
+				err = fmt.Errorf("multiple backgrounds defined")
+			}
+
+			modeStack = append([]mode{BackgroundMode}, modeStack...)
+			ftr.Runners = append(ftr.Runners, &runnerAndArgs{Step: line})
+		case strings.HasPrefix(line, "Scenario"):
+
+			if len(ftr.Background) <= 0 {
+				if backgroundRunners, ok := endOfBackgroundBlock(modeStack); ok {
+					ftr.Background = backgroundRunners
+				}
+			}
+
 			modeStack = append([]mode{DeclarationMode}, modeStack...)
-			runners = append(runners, &runnerAndArgs{Step: line})
+			ftr.Runners = append(ftr.Runners, &runnerAndArgs{Step: line})
 		case strings.HasPrefix(line, "Given") || andModeFor(GivenMode):
 			modeStack = append([]mode{GivenMode}, modeStack...)
 			if runner, err = ParseGiven(line, fReader); err != nil {
 				atLeastOneMissingRunner = true
 			} else {
 				lineComment = runner.StepInfo()
-				runners = append(runners, runner)
+				ftr.Runners = append(ftr.Runners, runner)
 			}
 		case strings.HasPrefix(line, "When") || andModeFor(WhenMode):
 			modeStack = append([]mode{WhenMode}, modeStack...)
@@ -132,7 +220,7 @@ func handleFeature(fReader *bufio.Reader) (runners []*runnerAndArgs, err error) 
 				atLeastOneMissingRunner = true
 			} else {
 				lineComment = runner.StepInfo()
-				runners = append(runners, runner)
+				ftr.Runners = append(ftr.Runners, runner)
 			}
 		case strings.HasPrefix(line, "Then") || andModeFor(ThenMode):
 			modeStack = append([]mode{ThenMode}, modeStack...)
@@ -142,36 +230,7 @@ func handleFeature(fReader *bufio.Reader) (runners []*runnerAndArgs, err error) 
 				break
 			}
 			lineComment = runner.StepInfo()
-			runners = append(runners, runner)
-		case strings.HasPrefix(line, `"""`) || modeStack[0] == PythonString:
-			if len(runners) <= 0 {
-				if strings.HasPrefix(line, `"""`) && modeStack[0] == PythonString {
-					modeStack = modeStack[1:]
-					break
-				}
-				scenarioIndentation = indentCount
-				modeStack = append([]mode{PythonString}, modeStack...)
-				break
-			}
-			lastRunner := func() *runnerAndArgs { return runners[len(runners)-1] }
-			args := lastRunner().Args
-			if strings.HasPrefix(line, `"""`) {
-				if modeStack[0] != PythonString {
-					args = append(args, "")
-					scenarioIndentation = indentCount
-					modeStack = append([]mode{PythonString}, modeStack...)
-				} else {
-					lastArg := &args[len(args)-1]
-					*lastArg = (*lastArg)[:len((*lastArg))-1]
-					modeStack = modeStack[1:]
-				}
-				lastRunner().Args = args
-				break
-			}
-
-			lastArg := &args[len(args)-1]
-			*lastArg += rawLine[scenarioIndentation-1:]
-			lastRunner().Args = args
+			ftr.Runners = append(ftr.Runners, runner)
 		case strings.HasPrefix(line, "Examples:") || modeStack[0] == Example:
 			modeStack = append([]mode{Example}, modeStack...)
 			err = fmt.Errorf("Not yet supported")
@@ -196,13 +255,43 @@ func handleFeature(fReader *bufio.Reader) (runners []*runnerAndArgs, err error) 
 		return nil, fmt.Errorf("Please implement the missing runners.")
 	}
 
-	return runners, nil
+	debug.Printf("Feature has %d background steps, and %d other steps",
+		len(ftr.Background),
+		len(ftr.Runners),
+	)
+	debug.Println("== Background steps: ==")
+	debugSteps(ftr.Background...)
+	debug.Println("== / ===")
+
+	return ftr, nil
+}
+
+func debugSteps(steps ...*runnerAndArgs) {
+	for _, step := range steps {
+		debug.Println(step.Step)
+	}
+}
+
+// feature contains everything needed to execute tests against a
+// feature file.
+type feature struct {
+	// Background represents a defined background clause for the
+	// feature. This will be executed before each Scenario.
+	Background []*runnerAndArgs
+
+	// Runners represent all the lines of the feature and the
+	// corresponding tests.
+	Runners []*runnerAndArgs
 }
 
 type runnerAndArgs struct {
+	// Runner is the function to run.
 	Runner runner
-	Args   []string
-	Step   string
+	// Args contains the string representations of the arguments to
+	// the runner.
+	Args []string
+	// Step is the line in the feature file which was matched.
+	Step string
 }
 
 func (r *runnerAndArgs) StepInfo() string {
@@ -221,8 +310,8 @@ func (r *runnerAndArgs) StepInfo() string {
 func accountForParamAndArgDiffFn(
 	forTest *testing.T,
 	forStep reflect.Type,
-) func(int, int, func(int) reflect.Type) error {
-	return func(numStepParams, numRegexGroups int, paramTypeFn func(int) reflect.Type) error {
+) func(string, int, int, func(int) reflect.Type) error {
+	return func(step string, numStepParams, numRegexGroups int, paramTypeFn func(int) reflect.Type) error {
 		numOff := numStepParams - numRegexGroups
 
 		// Loop through the arguments to see if we can't explain
@@ -241,9 +330,8 @@ func accountForParamAndArgDiffFn(
 			return fmt.Errorf(
 				"Regex provided %d groups, but the step requires %d arguments:\n\t%s",
 				numRegexGroups,
-				numStepParams,
-				"Foo",
-				//r.Step,
+				numStepParams-numGorkinGeneratableTypes,
+				step,
 			)
 		}
 
@@ -251,33 +339,48 @@ func accountForParamAndArgDiffFn(
 	}
 }
 
-func run(runners []*runnerAndArgs, t *testing.T, stepType reflect.Type) error {
+func run(runners []*runnerAndArgs, t *testing.T, stepType reflect.Type, backgroundSteps ...*runnerAndArgs) (reflect.Value, error) {
 
-	tType := reflect.TypeOf(t) // Did I stutter?
+	debug.Printf("Running %d steps with %d background steps.",
+		len(runners),
+		len(backgroundSteps),
+	)
+
+	tType := reflect.TypeOf(t)
 	stepVal := reflect.New(stepType.Elem())
 	accountForParamAndArgDiff := accountForParamAndArgDiffFn(t, stepType)
 
 	for _, r := range runners {
 
-		debug.Printf("Runner: %v", r)
+		debug.Printf(`Processing step: "%v"`, r.Step)
 
-		if strings.HasPrefix(r.Step, "Scenario") || strings.HasPrefix(r.Step, "Background") {
-			//debug.Printf("IN HERE")
-			stepVal = reflect.New(stepType.Elem())
+		if strings.HasPrefix(r.Step, "Scenario") {
+			fmt.Println(r.Step)
+			// For each scenario, re-run the background clause.
+			debug.Println("== BACKGROUND ==")
+			if newContext, err := run(backgroundSteps, t, stepType); err != nil {
+				return stepVal, err
+			} else {
+				debug.Println("== END BACKGROUND ==")
+				stepVal = newContext
+			}
+			continue
+		} else if strings.HasPrefix(r.Step, "Background") {
 			continue
 		}
 
 		rt := reflect.TypeOf(r.Runner)
 		if rt.Kind() != reflect.Func {
-			return fmt.Errorf("Steps must be functions, not %v", rt)
+			return stepVal, fmt.Errorf("Steps must be functions, not %v", rt)
 		}
 
 		numRegexArgs := len(r.Args)
 		numStepArgs := rt.NumIn()
 		if numStepArgs > numRegexArgs {
-			err := accountForParamAndArgDiff(numStepArgs, numRegexArgs, rt.In)
+			err := accountForParamAndArgDiff(r.Step, numStepArgs, numRegexArgs, rt.In)
 			if err != nil {
-				return err
+				fmt.Printf("WARNING: %v\n", err)
+				//return stepVal, err
 			}
 		}
 
@@ -287,7 +390,7 @@ func run(runners []*runnerAndArgs, t *testing.T, stepType reflect.Type) error {
 
 			switch rt.In(stepArgIdx) {
 			default:
-				return fmt.Errorf(
+				return stepVal, fmt.Errorf(
 					`Cannot handle steps which accept arguments of type "%v" at this time.`,
 					rt.In(stepArgIdx),
 				)
@@ -303,12 +406,17 @@ func run(runners []*runnerAndArgs, t *testing.T, stepType reflect.Type) error {
 				args = append(args, reflect.ValueOf(b))
 				regexGroupIdx++
 			case reflect.TypeOf(""):
-				args = append(args, reflect.ValueOf(r.Args[regexGroupIdx]))
+				if len(r.Args) > regexGroupIdx {
+					args = append(args, reflect.ValueOf(r.Args[regexGroupIdx]))
+				} else {
+					fmt.Println("WARNING: Assuming a doc string will be passed in.")
+					args = append(args, reflect.ValueOf(""))
+				}
 				regexGroupIdx++
 			case reflect.TypeOf(0):
 				i, err := strconv.Atoi(r.Args[regexGroupIdx])
 				if err != nil {
-					return err
+					return stepVal, err
 				}
 				args = append(args, reflect.ValueOf(i))
 				regexGroupIdx++
@@ -317,7 +425,7 @@ func run(runners []*runnerAndArgs, t *testing.T, stepType reflect.Type) error {
 
 		reflect.ValueOf(r.Runner).Call(args)
 	}
-	return nil
+	return stepVal, nil
 }
 
 func readFeatureFile(f os.FileInfo) (string, error) {

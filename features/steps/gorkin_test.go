@@ -1,15 +1,15 @@
 package steps
 
 import (
-	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	. "github.com/kat-co/gorkin/gorkin"
 	"os/exec"
+
+	. "github.com/kat-co/gorkin/gorkin"
 )
 
 func TestFeatures(t *testing.T) {
@@ -21,26 +21,30 @@ func TestFeatures(t *testing.T) {
 		gorkResult  string
 	}
 
-	Step(`there is( not)?? a directory named \"(\w+)\"`, func(f *I, noDir bool, dirName string) {
+	Step(`the path \"([^"]+)\"( doesn't)? exists?`, func(f *I, dirName string, deleteIfExists bool) {
 
 		// Create a temporary directory to operate within.
-		dirName, err := ioutil.TempDir("", "gorkin-test")
-		if err != nil {
-			t.Fatalf("could not create tmp host directory: %s", err)
+		if f.dir == "" {
+			isolationDir, err := ioutil.TempDir("", "gorkin-test")
+			if err != nil {
+				t.Fatalf("could not create tmp host directory: %s", err)
+			}
+			f.dir = isolationDir
 		}
-		f.dir = dirName
 
-		if !noDir {
-			if err := os.Mkdir(filepath.Join(dirName, "features"), 0777); err != nil {
+		if newDir := filepath.Join(f.dir, dirName); deleteIfExists == false {
+			if err := os.Mkdir(newDir, 0777); err != nil {
 				t.Fatalf("could not create directory: %s", err)
 			}
+		} else if err := os.RemoveAll(newDir); err != nil {
+			t.Fatalf("could not remove directory: %v", err)
 		}
 	})
 
-	Step(`there is at least 1 feature file`, func(f *I) {
+	Step(`the file \"([^"]+)\" exists(?: with content)?`, func(f *I, filePath, content string) {
 
-		f.featureFile = filepath.Join(f.dir, "features", "foo.feature")
-		if _, err := os.Create(f.featureFile); err != nil {
+		file := filepath.Join(f.dir, filePath)
+		if err := ioutil.WriteFile(file, []byte(content), 0666); err != nil {
 			t.Fatalf("could not create feature file: %v", err)
 		}
 	})
@@ -48,28 +52,6 @@ func TestFeatures(t *testing.T) {
 	Step(`there is a steps directory under features`, func(f *I) {
 		if err := os.Mkdir(filepath.Join(f.dir, "features", "steps"), 0777); err != nil {
 			t.Fatalf("could not create feature file: %v", err)
-		}	
-	})
-
-	Step(`there is at least 1 gorkin test file`, func(f *I) {
-		testFile := filepath.Join(f.dir, "features", "steps", "foo_test.go")
-		err := ioutil.WriteFile(testFile, []byte(
-			`package steps
-
-import (
-	"testing"
-
-	. "github.com/kat-co/gorkin/gorkin"
-)
-
-func Test(t *testing.T) {
-
-	type I struct {}
-
-	RunFeatureTests(t, &I{})	
-}`), 0666)
-		if err != nil {
-			t.Fatalf("could not write test file: %v", err)
 		}
 	})
 
@@ -101,29 +83,18 @@ func Test(t *testing.T) {
 		}
 	})
 
-	Step(`it should find the .feature files within that directory`, func(f *I) {
-		fmt.Println("checking to see if gorkin found the .feature file in that directory.")
-		if f.featureFile == "" {
-			t.Fatal("Did not find a .feature file.")
-		}
-	})
-
-	Step(`they should receive this error`, func(f *I, errMsg string) {
-		if f.gorkResult != errMsg {
+	Step(`the output should be`, func(f *I, output string) {
+		if f.gorkResult != output {
+			t.Errorf(`Expected output: "%s"`, output)
 			t.Fatalf(`unexpected result from gorkin: "%v"`, f.gorkResult)
 		}
 	})
 
-	Step("a gorkin feature with 2 scenarios", func() {
-		t.Fatal("Not implemented.")
-	})
-
-	Step("a step which conflicts with another", func() {
-		t.Fatal("Not implemented")
-	})
-
-	Step("the steps should not conflict with one another", func() {
-		t.Fatal("Not implemented.")
+	Step(`the output should contain`, func(f *I, output string) {
+		if strings.Contains(output, f.gorkResult) {
+			t.Logf(`Expected output: "%s"`, output)
+			t.Fatalf(`unexpected result from gorkin: "%v"`, f.gorkResult)
+		}
 	})
 
 	RunFeatureTests(t, &I{})

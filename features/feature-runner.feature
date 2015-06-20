@@ -1,20 +1,101 @@
 Feature: Running Over Feature Files
-  In order to consume feature files
-  A gorkin user will need to run gorkin against a directory of files.
+  As a gorkin user
+  I would like gorkin to run tests against feature files
+  So that I can couple my requirements with my tests.
 
-  Scenario: A user runs gorkin without a features directory
-    Given there is not a directory named "features"
+  Background:
+    Given the path "./features" exists
+    And the path "./features/steps" exists
+
+  Scenario: A user runs gorkin without a features directory.
+    Given the path "./features" doesn't exist
     When a user runs gorkin
-    Then they should receive this error
+    Then the output should be
     """
     could not find a features directory.
     """
 
-  Scenario: A user runs gorkin
-    When there is a directory named "features"
-    And there is at least 1 feature file
-    And there is a steps directory under features
-    And there is at least 1 gorkin test file
-    And a user runs gorkin
-    Then gorkin should find the features directory
-    And it should find the .feature files within that directory
+  Scenario: A user runs gorkin with feature files and steps.
+    Given the file "./features/foo.feature" exists
+    And the file "./features/steps/foo_test.go" exists with content
+    """
+    package steps
+
+    import (
+        "testing"
+
+        . "github.com/kat-co/gorkin/gorkin"
+    )
+
+    func Test(t *testing.T) {
+        type I struct {}
+        RunFeatureTests(t, &I{})
+    }
+    """
+    When a user runs gorkin
+    Then the output should contain
+    """
+    """
+
+  Scenario: A user runs a feature file with a python string.
+    Given the file "./features/python.feature" exists with content
+    """
+    Feature: Example Feature
+      Scenario: Scenario A
+        Given state should be 0
+        Then set state to 1
+
+      Scenario: Scenario B
+        Then state should be 0
+    """
+    And the file "./features/steps/step_test.go" exists
+    When a user runs gorkin
+
+
+  Scenario: A user runs multiple scenarios with reusable steps.
+    Given the file "./features/reusable-steps.feature" exists with content
+    """
+    Feature: Example Feature
+
+      Scenario: Scenario A
+        Given set state to "1"
+        Then state should be "1"
+
+      Scenario: Scenario B
+        Then state should be "0"
+    """
+    And the file "./features/steps/step_test.go" exists with content
+    """
+    package gorkin
+
+    import (
+        "testing"
+
+        . "github.com/kat-co/gorkin/gorkin"
+    )
+
+    func Test(t *testing.T) {
+
+        type I struct {
+            State int
+        }
+
+        Step(`set state to "([^"]+)"$`, func(i *I, state int) {
+            i.State = state
+        })
+
+        Step(`state should be "([^"]+)"$`, func(i *I, state int) {
+            if i.State != state {
+                t.Error("current state:", i.State)
+                t.Fatal("State is not", state)
+            }
+        })
+
+        RunFeatureTests(t, &I{})
+    }
+    """
+    When a user runs gorkin
+    Then the output should contain
+    """
+    PASS
+    """
