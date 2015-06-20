@@ -18,19 +18,17 @@ import (
 	. "github.com/kat-co/vala"
 )
 
-func init() {
-	var debugBuff io.Writer
-	if false {
-		debugBuff = os.Stderr
-	} else {
-		debugBuff = ioutil.Discard
-	}
-	debug = log.New(debugBuff, "DEBUG: ", log.Llongfile)
-}
-
-var debug *log.Logger
+var (
+	Debug = log.New(ioutil.Discard, "DEBUG: ", log.Llongfile)
+	Warning = log.New(ioutil.Discard, "WARNING: ", log.Llongfile)
+)
 
 func RunFeatureTests(t *testing.T, stepIsolater interface{}) {
+
+	if Debug == nil {
+		panic("Debug is nil somehow...")
+	}
+	
 	stepType := reflect.PtrTo(reflect.TypeOf(stepIsolater)).Elem()
 	// Steps should be in the steps folder under features
 	files, err := ioutil.ReadDir("../")
@@ -92,13 +90,13 @@ func handleFeature(fReader *bufio.Reader) (ftr *feature, err error) {
 	endOfBackgroundBlock := func(stateStack []mode) ([]*runnerAndArgs, bool) {
 		backgroundRunners := make([]*runnerAndArgs, 0)
 		for posFromHead, state := range stateStack {
-			//debug.Printf("Adding: %v", (*ftr.Runners[len(ftr.Runners)-posFromHead-1]))
+			//Debug.Printf("Adding: %v", (*ftr.Runners[len(ftr.Runners)-posFromHead-1]))
 			switch state {
 			case BackgroundMode:
 
-				debug.Println("== All steps: ==")
+				Debug.Println("== All steps: ==")
 				debugSteps(ftr.Runners...)
-				debug.Println("== / ==")
+				Debug.Println("== / ==")
 
 				// Remove all the background runners from the normal
 				// stack.
@@ -108,13 +106,13 @@ func handleFeature(fReader *bufio.Reader) (ftr *feature, err error) {
 					backgroundRunners = append(backgroundRunners, runner)
 				}
 				//backgroundRunners = ftr.Runners[pivotPoint:]
-				debug.Println("== backgroundRunners: ==")
+				Debug.Println("== backgroundRunners: ==")
 				debugSteps(backgroundRunners...)
-				debug.Println("== / ==")
+				Debug.Println("== / ==")
 				ftr.Runners = ftr.Runners[:pivotPoint]
-				debug.Println("== All steps: ==")
+				Debug.Println("== All steps: ==")
 				debugSteps(ftr.Runners...)
-				debug.Println("== / ==")
+				Debug.Println("== / ==")
 				return backgroundRunners, true
 			case DeclarationMode:
 				return nil, false
@@ -138,8 +136,8 @@ func handleFeature(fReader *bufio.Reader) (ftr *feature, err error) {
 			return andSpecified && modeStack[0] == mode
 		}
 
-		// debug.Printf(`Processing line (mode:%s): "%s"\\n`, modeStack[0], line)
-		// debug.Printf(`Processing rawLine: "%s"\\n`, rawLine)
+		// Debug.Printf(`Processing line (mode:%s): "%s"\\n`, modeStack[0], line)
+		// Debug.Printf(`Processing rawLine: "%s"\\n`, rawLine)
 
 		var runner *runnerAndArgs
 		var lineComment string
@@ -255,20 +253,20 @@ func handleFeature(fReader *bufio.Reader) (ftr *feature, err error) {
 		return nil, fmt.Errorf("Please implement the missing runners.")
 	}
 
-	debug.Printf("Feature has %d background steps, and %d other steps",
+	Debug.Printf("Feature has %d background steps, and %d other steps",
 		len(ftr.Background),
 		len(ftr.Runners),
 	)
-	debug.Println("== Background steps: ==")
+	Debug.Println("== Background steps: ==")
 	debugSteps(ftr.Background...)
-	debug.Println("== / ===")
+	Debug.Println("== / ===")
 
 	return ftr, nil
 }
 
 func debugSteps(steps ...*runnerAndArgs) {
 	for _, step := range steps {
-		debug.Println(step.Step)
+		Debug.Println(step.Step)
 	}
 }
 
@@ -341,7 +339,7 @@ func accountForParamAndArgDiffFn(
 
 func run(runners []*runnerAndArgs, t *testing.T, stepType reflect.Type, backgroundSteps ...*runnerAndArgs) (reflect.Value, error) {
 
-	debug.Printf("Running %d steps with %d background steps.",
+	Debug.Printf("Running %d steps with %d background steps.",
 		len(runners),
 		len(backgroundSteps),
 	)
@@ -352,16 +350,16 @@ func run(runners []*runnerAndArgs, t *testing.T, stepType reflect.Type, backgrou
 
 	for _, r := range runners {
 
-		debug.Printf(`Processing step: "%v"`, r.Step)
+		Debug.Printf(`Processing step: "%v"`, r.Step)
 
 		if strings.HasPrefix(r.Step, "Scenario") {
 			fmt.Println(r.Step)
 			// For each scenario, re-run the background clause.
-			debug.Println("== BACKGROUND ==")
+			Debug.Println("== BACKGROUND ==")
 			if newContext, err := run(backgroundSteps, t, stepType); err != nil {
 				return stepVal, err
 			} else {
-				debug.Println("== END BACKGROUND ==")
+				Debug.Println("== END BACKGROUND ==")
 				stepVal = newContext
 			}
 			continue
@@ -379,8 +377,7 @@ func run(runners []*runnerAndArgs, t *testing.T, stepType reflect.Type, backgrou
 		if numStepArgs > numRegexArgs {
 			err := accountForParamAndArgDiff(r.Step, numStepArgs, numRegexArgs, rt.In)
 			if err != nil {
-				fmt.Printf("WARNING: %v\n", err)
-				//return stepVal, err
+				Warning.Println(err)
 			}
 		}
 
@@ -409,7 +406,7 @@ func run(runners []*runnerAndArgs, t *testing.T, stepType reflect.Type, backgrou
 				if len(r.Args) > regexGroupIdx {
 					args = append(args, reflect.ValueOf(r.Args[regexGroupIdx]))
 				} else {
-					fmt.Println("WARNING: Assuming a doc string will be passed in.")
+					Warning.Println("Assuming a doc string will be passed in.")
 					args = append(args, reflect.ValueOf(""))
 				}
 				regexGroupIdx++

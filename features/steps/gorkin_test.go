@@ -55,20 +55,23 @@ func TestFeatures(t *testing.T) {
 		}
 	})
 
-	Step(`a user runs gorkin`, func(f *I) {
+	Step(`a user runs \"([^"]+)\"`, func(f *I, command string) {
 
-		cwd, err := os.Getwd()
-		if err != nil {
-			t.Fatalf("could not get cwd: %v", err)
-		}
-		defer func() {
-			os.Chdir(cwd)
-		}()
-		if err := os.Chdir(f.dir); err != nil {
-			t.Fatalf("could not change into temp directory: %v\n", err)
+		if f.dir != "" {
+			cwd, err := os.Getwd()
+			if err != nil {
+				t.Fatalf("could not get cwd: %v", err)
+			}
+			defer func() {
+				os.Chdir(cwd)
+			}()
+			if err := os.Chdir(f.dir); err != nil {
+				t.Fatalf("could not change into temp directory: %v\n", err)
+			}
 		}
 
-		cmd := exec.Command("gorkin")
+		cmdAndArgs := strings.Split(command, " ")
+		cmd := exec.Command(cmdAndArgs[0], cmdAndArgs[1:]...)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("could not run gorkin: %v", err)
@@ -91,7 +94,7 @@ func TestFeatures(t *testing.T) {
 	})
 
 	Step(`the output should contain`, func(f *I, output string) {
-		if strings.Contains(output, f.gorkResult) {
+		if !strings.Contains(f.gorkResult, output) {
 			t.Logf(`Expected output: "%s"`, output)
 			t.Fatalf(`unexpected result from gorkin: "%v"`, f.gorkResult)
 		}

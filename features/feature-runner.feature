@@ -9,7 +9,7 @@ Feature: Running Over Feature Files
 
   Scenario: A user runs gorkin without a features directory.
     Given the path "./features" doesn't exist
-    When a user runs gorkin
+    When a user runs "gorkin"
     Then the output should be
     """
     could not find a features directory.
@@ -32,24 +32,11 @@ Feature: Running Over Feature Files
         RunFeatureTests(t, &I{})
     }
     """
-    When a user runs gorkin
+    When a user runs "gorkin"
     Then the output should contain
     """
+    ok
     """
-
-  Scenario: A user runs a feature file with a python string.
-    Given the file "./features/python.feature" exists with content
-    """
-    Feature: Example Feature
-      Scenario: Scenario A
-        Given state should be 0
-        Then set state to 1
-
-      Scenario: Scenario B
-        Then state should be 0
-    """
-    And the file "./features/steps/step_test.go" exists
-    When a user runs gorkin
 
 
   Scenario: A user runs multiple scenarios with reusable steps.
@@ -94,8 +81,8 @@ Feature: Running Over Feature Files
         RunFeatureTests(t, &I{})
     }
     """
-    When a user runs gorkin
+    When a user runs "gorkin"
     Then the output should contain
     """
-    PASS
+    ok
     """
