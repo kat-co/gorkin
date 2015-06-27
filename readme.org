@@ -1,0 +1,78 @@
+#+TITLE: gorkin
+#+AUTHOR: Katherine Cox-Buday
+
+gorkin is an experimental implementation of [[https://cucumber.io/][cucumber]] for [[https://golang.org/][Go]].
+
+gorkin is designed to enable developers to write tests against feature files utilizing the standard Go testing framework. I wanted to make it easy for developers to be handed user stories and use their existing tools to write tests in ways they were familiar with. To that end, I've tried very hard to minimize the framework needed to hook into gorkin.
+
+Cucumber user stories look like this:
+
+#+BEGIN_SRC feature :cached yes :exports source :tangle examples/features/example-feature.feature
+  Feature: My First Feature
+    In order to understand how to use gorkin
+    A new gorkin user will need a feature example with a corresponding test.
+
+    Scenario: A User Visits the gorkin Site
+      Given a new user visits the gorkin site
+      Then they should see an example.
+#+END_SRC
+
+And a corresponding gorkin test might look something like this:
+
+#+BEGIN_SRC go :cached yes :exports source :tangle examples/features/steps/example_test.go
+  package example
+
+  import (
+      . "testing"
+      "fmt"
+
+      . "github.com/kat-co/gorkin/gorkin"
+  )
+
+  // I is a structure designed to isolate testing state. For each
+  // scenario, a new one of these will be instantiated and passed to
+  // test steps when requested.
+  type I struct {}
+
+  // Steps can be registered anywhere. The only stipulation is that they
+  // all be registered before the call to RunFeatureTests is made. Since
+  // step registration may need to be spread across several files, the
+  // init function is a good choice.
+  func init() {
+      Step(`a new user visits the gorkin site`, func() {
+          fmt.Println("visit the gorkin site here...")
+      })
+
+      Step(`they should see an example`, func(t *T) {
+          t.Log("test that they saw the example.")
+      })
+  }
+
+  func Test(t *T) {
+      // RunFeatureTests registers Go's testing runner and your
+      // isolation type with Gorkin and then runs the defined steps
+      // against any feature files found.
+      RunFeatureTests(t, &I{})
+  }
+#+END_SRC
+
+Now to execute tests, run go test as you usually would:
+
+#+BEGIN_SRC sh :cache yes :export both :results drawer replace
+  go test -v ./examples/...
+#+END_SRC
+
+#+RESULTS[45615e2ae4b10f972f18882c5bb3af9b34607c34]:
+:RESULTS:
+=== RUN Test
+/home/kate/workspace/go/src/github.com/kat-co/gorkin/examples/features/steps <nil>
+Processing: "example-feature.feature".
+Scenario: A User Visits the gorkin Site
+visit the gorkin site here...
+--- PASS: Test (0.00 seconds)
+    example_test.go:26: test that they saw the example.
+PASS
+ok  	github.com/kat-co/gorkin/examples/features/steps	0.002s
+:END:
+
+You can also run gorkin which is a wrapper around "go test ./features/steps/..."
