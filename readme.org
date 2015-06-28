@@ -1,6 +1,8 @@
 #+TITLE: gorkin
 #+AUTHOR: Katherine Cox-Buday
 
+[[https://godoc.org/github.com/kat-co/gorkin/gorkin][https://godoc.org/github.com/kat-co/gorkin/gorkin?status.svg]]
+
 gorkin is an experimental implementation of [[https://cucumber.io/][cucumber]] for [[https://golang.org/][Go]].
 
 gorkin is designed to enable developers to write tests against feature files utilizing the standard Go testing framework. I wanted to make it easy for developers to be handed user stories and use their existing tools to write tests in ways they were familiar with. To that end, I've tried very hard to minimize the framework needed to hook into gorkin.
