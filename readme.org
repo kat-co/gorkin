@@ -58,21 +58,19 @@ And a corresponding gorkin test might look something like this:
 
 Now to execute tests, run go test as you usually would:
 
-#+BEGIN_SRC sh :cache yes :export both :results drawer replace
+#+BEGIN_SRC sh :cache yes :export both :results output replace
   go test -v ./examples/...
 #+END_SRC
 
-#+RESULTS[45615e2ae4b10f972f18882c5bb3af9b34607c34]:
-:RESULTS:
-=== RUN Test
-/home/kate/workspace/go/src/github.com/kat-co/gorkin/examples/features/steps <nil>
-Processing: "example-feature.feature".
-Scenario: A User Visits the gorkin Site
-visit the gorkin site here...
---- PASS: Test (0.00 seconds)
-    example_test.go:26: test that they saw the example.
-PASS
-ok  	github.com/kat-co/gorkin/examples/features/steps	0.002s
-:END:
+#+RESULTS[09983640e601c21bb77c67e7a795b670b2136888]:
+: === RUN Test
+: /home/kate/workspace/go/src/github.com/kat-co/gorkin/examples/features/steps <nil>
+: Processing: "example-feature.feature".
+: Scenario: A User Visits the gorkin Site
+: visit the gorkin site here...
+: --- PASS: Test (0.00 seconds)
+: 	example_test.go:26: test that they saw the example.
+: PASS
+: ok  	github.com/kat-co/gorkin/examples/features/steps	0.001s
 
 You can also run gorkin which is a wrapper around "go test ./features/steps/..."
