@@ -5,4 +5,4 @@ Feature: My First Feature
 
   Scenario: A User Visits the gorkin Site
     Given a new user visits the gorkin site
-    Then they should see an example.
+    Then they should see 3 examples.
