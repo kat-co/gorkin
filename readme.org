@@ -7,7 +7,7 @@ gorkin is designed to enable developers to write tests against feature files uti
 
 Cucumber user stories look like this:
 
-#+BEGIN_SRC feature :cached yes :exports source :tangle examples/features/example-feature.feature
+#+BEGIN_SRC feature :cached yes :exports code :tangle examples/features/example-feature.feature
   Feature: My First Feature
     In order to understand how to use gorkin
     A new gorkin user will need a feature example with a corresponding test.
@@ -19,7 +19,7 @@ Cucumber user stories look like this:
 
 And a corresponding gorkin test might look something like this:
 
-#+BEGIN_SRC go :cached yes :exports source :tangle examples/features/steps/example_test.go
+#+BEGIN_SRC go :cached yes :exports code :tangle examples/features/steps/example_test.go
   package example
 
   import (
